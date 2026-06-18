@@ -1,0 +1,66 @@
+name: Test and Deploy
+
+on:
+  push:
+    branches:
+      - prod
+  workflow_dispatch: {}   # permette anche di lanciarla a mano da GitHub
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout codice
+        uses: actions/checkout@v4
+
+      - name: Crea .env per il test (valori fittizi, solo per CI)
+        run: |
+          cat <<EOF > .env
+          MYSQL_ROOT_PASSWORD=ci_rootpass
+          MYSQL_DATABASE=ci_db
+          MYSQL_USER=ci_user
+          MYSQL_PASSWORD=ci_pass
+          MYSQL_HOST=db
+          EOF
+
+      - name: Build e avvio container
+        run: docker compose up -d --build
+
+      - name: Attendo che l'app risponda (smoke test)
+        run: |
+          echo "Attendo che http://localhost:8000/ risponda..."
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/ > /dev/null; then
+              echo "App pronta e funzionante!"
+              exit 0
+            fi
+            echo "Tentativo $i/30 non riuscito, riprovo in 3s..."
+            sleep 3
+          done
+          echo "ERRORE: l'app non ha risposto in tempo."
+          exit 1
+
+      - name: Mostra log container (sempre, utile per debug)
+        if: always()
+        run: docker compose logs
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
+  deploy:
+    needs: test          # parte SOLO se il job "test" è andato a buon fine
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy su EC2 via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd ${{ secrets.EC2_PROJECT_PATH }}
+            git checkout prod
+            git pull origin prod
+            docker compose up -d --build
+            docker image prune -f
