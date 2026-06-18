@@ -4,7 +4,11 @@ on:
   push:
     branches:
       - prod
-  workflow_dispatch: {}   # permette anche di lanciarla a mano da GitHub
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   test:
@@ -13,7 +17,7 @@ jobs:
       - name: Checkout codice
         uses: actions/checkout@v4
 
-      - name: Crea .env per il test (valori fittizi, solo per CI)
+      - name: Crea .env per il test
         run: |
           cat <<EOF > .env
           MYSQL_ROOT_PASSWORD=ci_rootpass
@@ -26,7 +30,7 @@ jobs:
       - name: Build e avvio container
         run: docker compose up -d --build
 
-      - name: Attendo che l'app risponda (smoke test)
+      - name: Attendo che l'app risponda
         run: |
           echo "Attendo che http://localhost:8000/ risponda..."
           for i in $(seq 1 30); do
@@ -40,7 +44,7 @@ jobs:
           echo "ERRORE: l'app non ha risposto in tempo."
           exit 1
 
-      - name: Mostra log container (sempre, utile per debug)
+      - name: Mostra log container
         if: always()
         run: docker compose logs
 
@@ -49,18 +53,33 @@ jobs:
         run: docker compose down -v
 
   deploy:
-    needs: test          # parte SOLO se il job "test" è andato a buon fine
+    needs: test
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
     steps:
-      - name: Deploy su EC2 via SSH
-        uses: appleboy/ssh-action@v1.0.3
+      - name: Checkout codice
+        uses: actions/checkout@v4
+
+      - name: Configura credenziali AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            cd ${{ secrets.EC2_PROJECT_PATH }}
-            git checkout prod
-            git pull origin prod
-            docker compose up -d --build
-            docker image prune -f
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: eu-north-1
+
+      - name: Deploy su EC2 via SSM
+        run: |
+          aws ssm send-command \
+            --document-name "AWS-RunShellScript" \
+            --targets "Key=instanceids,Values=${{ secrets.EC2_INSTANCE_ID }}" \
+            --parameters commands=[
+              "cd ${{ secrets.EC2_PROJECT_PATH }}",
+              "git checkout prod",
+              "git pull origin prod",
+              "docker compose up -d --build",
+              "docker image prune -f"
+            ] \
+            --timeout-seconds 600 \
+            --region eu-north-1
