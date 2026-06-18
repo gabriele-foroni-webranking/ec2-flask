@@ -10,8 +10,8 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE}
       MYSQL_USER: ${MYSQL_USER}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-    ports:
-      - "3306:3306"
+    expose:
+      - "3306"
     volumes:
       - mysql_data:/var/lib/mysql
     networks:
@@ -26,7 +26,7 @@ services:
       - ./app:/app  # Sincronizza la cartella locale con il container
     working_dir: /app
     # Modificato: Installa le dipendenze SE MANCANO e avvia direttamente Flask sulla porta 8000
-    command: sh -c "pip install Flask Flask-SQLAlchemy pymysql cryptography && flask run --host=0.0.0.0 --port=8000 --debug"
+    command: sh -c "pip install Flask Flask-SQLAlchemy pymysql cryptography && flask run --host=0.0.0.0 --port=8000"
     ports:
       - "8000:8000"  # Mappa la porta 8000 esterna sulla 8000 interna di Flask
     environment:
