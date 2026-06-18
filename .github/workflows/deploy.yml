@@ -1,4 +1,4 @@
-name: Test and Deploy
+name: Test, Build, Push and Deploy
 
 on:
   push:
@@ -52,24 +52,69 @@ jobs:
         if: always()
         run: docker compose down -v
 
-  deploy:
+  build-and-push:
     needs: test
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
-
+    outputs:
+      image-tag: ${{ steps.tag.outputs.tag }}
     steps:
       - name: Checkout codice
         uses: actions/checkout@v4
 
-      - name: Configura credenziali AWS via OIDC
+      - name: Genera tag immagine
+        id: tag
+        run: |
+          echo "tag=$(date +%Y%m%d%H%M%S)-${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+      - name: Configura credenziali AWS
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: eu-north-1
 
+      - name: Login a ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build e push immagine su ECR
+        env:
+          REGISTRY: ${{ secrets.AWS_ECR_REGISTRY }}
+          REPOSITORY: ${{ secrets.AWS_ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          docker build -t $REGISTRY/$REPOSITORY:$IMAGE_TAG .
+          docker tag $REGISTRY/$REPOSITORY:$IMAGE_TAG $REGISTRY/$REPOSITORY:latest
+          docker push $REGISTRY/$REPOSITORY:$IMAGE_TAG
+          docker push $REGISTRY/$REPOSITORY:latest
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout codice
+        uses: actions/checkout@v4
+
+      - name: Configura credenziali AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: eu-north-1
+
+      - name: Login a ECR (per l'EC2)
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
       - name: Deploy su EC2 via SSM
+        env:
+          REGISTRY: ${{ secrets.AWS_ECR_REGISTRY }}
+          REPOSITORY: ${{ secrets.AWS_ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image-tag }}
         run: |
           aws ssm send-command \
             --document-name "AWS-RunShellScript" \
@@ -78,8 +123,10 @@ jobs:
               "cd ${{ secrets.EC2_PROJECT_PATH }}",
               "git checkout prod",
               "git pull origin prod",
-              "docker compose up -d --build",
-              "docker image prune -f"
+              "aws ecr get-login-password --region eu-north-1 | docker login --username AWS --password-stdin $REGISTRY",
+              "docker pull $REGISTRY/$REPOSITORY:latest",
+              "docker compose down",
+              "docker compose up -d"
             ]' \
             --timeout-seconds 600 \
             --region eu-north-1
