@@ -121,8 +121,6 @@ jobs:
             --targets "Key=instanceids,Values=${{ secrets.EC2_INSTANCE_ID }}" \
             --parameters 'commands=[
               "cd ${{ secrets.EC2_PROJECT_PATH }}",
-              "git checkout prod",
-              "git pull origin prod",
               "aws ecr get-login-password --region eu-north-1 | docker login --username AWS --password-stdin $REGISTRY",
               "docker pull $REGISTRY/$REPOSITORY:latest",
               "docker compose down",
