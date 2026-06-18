@@ -1,6 +1,8 @@
 import os
+import time
 from flask import Flask, render_template, request, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
+from pymysql import OperationalError
 
 app = Flask(__name__)
 
@@ -25,7 +27,16 @@ class Elemento(db.Model):
 
 # Crea la tabella su MySQL all'avvio se non esiste
 with app.app_context():
-    db.create_all()
+    for i in range(10):  # Tenta fino a 10 volte
+        try:
+            db.create_all()
+            print("Connessione al database riuscita e tabelle verificate!")
+            break
+        except OperationalError:
+            print(f"Database non ancora pronto. Tentativo {i+1}/10. Riprovo tra 3 secondi...")
+            time.sleep(3)
+    else:
+        print("Impossibile connettersi al database dopo diversi tentativi.")
 
 # Rotta principale: Legge dal database MySQL
 @app.route('/', methods=['GET'])
@@ -52,9 +63,7 @@ def elimina(id):
     elemento_da_cancellare = Elemento.query.get_or_404(id)
     db.session.delete(elemento_da_cancellare)
     db.session.commit()
-    
-    # Ritorna una stringa vuota e il codice HTTP 200 (Successo)
-    return '', 200
+    return {"success": True}, 200  # Restituisce un JSON, non un redirect!
 
 if __name__ == '__main__':
     app.run()
