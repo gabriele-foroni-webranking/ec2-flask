@@ -74,12 +74,12 @@ jobs:
           aws ssm send-command \
             --document-name "AWS-RunShellScript" \
             --targets "Key=instanceids,Values=${{ secrets.EC2_INSTANCE_ID }}" \
-            --parameters commands=[
+            --parameters 'commands=[
               "cd ${{ secrets.EC2_PROJECT_PATH }}",
               "git checkout prod",
               "git pull origin prod",
               "docker compose up -d --build",
               "docker image prune -f"
-            ] \
+            ]' \
             --timeout-seconds 600 \
             --region eu-north-1
