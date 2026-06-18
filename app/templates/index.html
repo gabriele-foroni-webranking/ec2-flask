@@ -47,7 +47,7 @@
                                 <td class="align-middle"><strong>{{ elemento.chiave }}</strong></td>
                                 <td class="align-middle">{{ elemento.valore }}</td>
                                 <td class="text-end">
-                                    <a href="{{ url_for('elimina', id=elemento.id) }}" class="btn btn-danger btn-sm">Elimina</a>
+                                    <button class="btn btn-danger btn-sm btn-elimina" data-id="{{ elemento.id }}">Elimina</button>
                                 </td>
                             </tr>
                             {% endfor %}
@@ -63,4 +63,24 @@
     </div>
 
 </body>
+<script>
+document.querySelectorAll('.btn-elimina').forEach(bottone => {
+    bottone.addEventListener('click', function() {
+        const id = this.getAttribute('data-id');
+        
+        // Usiamo i backtick ` per evitare conflitti con gli apostrofi italiani
+        if (confirm(`Vuoi davvero eliminare questo elemento?`)) {
+            fetch('/elimina/' + id, {
+                method: 'DELETE'
+            }).then(response => {
+                if (response.ok) {
+                    window.location.reload();
+                } else {
+                    alert("Errore durante l'eliminazione");
+                }
+            });
+        }
+    });
+});
+</script>
 </html>
